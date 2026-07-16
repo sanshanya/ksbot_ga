@@ -1,0 +1,7 @@
+{
+  "name": "ga-wps-event-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {"open-event-sdk": "^1.0.1"}
+}

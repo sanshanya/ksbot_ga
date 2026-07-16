@@ -1,0 +1,53 @@
+version: 2
+
+# Authoritative Kubernetes environment and approval inventory.
+# Environment identity is namespace-scoped in qy-online; the cluster and nodes are shared.
+contexts:
+  qy-online:
+    aliases: []
+    kubeconfig_paths:
+      - C:/Users/sansm/.kube/qy-online.yaml
+    description: Qingyang shared Kubernetes cluster for production and test workloads
+    environment_scope: namespace
+
+    namespaces:
+      kaic-kis:
+        environment: production
+        purpose: Production inference services
+        write_policy: approval_required
+
+      test-inference:
+        environment: test
+        purpose: SGLang experiments and validation
+        write_policy: allow
+
+      kube-system:
+        environment: system
+        purpose: Kubernetes system components
+        write_policy: approval_required
+
+      default:
+        environment: default
+        purpose: Default namespace; protected from accidental writes
+        write_policy: approval_required
+
+    # The 110 nodes are shared by production and test pods. Cluster-scoped mutations
+    # such as drain/cordon/taint can affect production even though nodes do not belong
+    # to a namespace.
+    cluster_scoped_write_policy: approval_required
+    all_namespaces_write_policy: approval_required
+
+    # Only explicitly listed production/protected namespaces require approval.
+    # An unlisted namespace is treated as non-production so the Agent remains autonomous.
+    unlisted_namespace_write_policy: allow
+
+policy:
+  unknown_context: model_fixable
+  unresolved_target: model_fixable
+  read_only: allow
+
+# Explicit input-budget controls for the Gate request. These are configuration,
+# not hidden runtime magic numbers.
+gate_input:
+  max_referenced_files: 4
+  max_referenced_bytes_per_file: 20000

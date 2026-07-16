@@ -1,0 +1,43 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Generated upstream checkout (independent git repo, not a submodule).
+# GA_REVISION is the single source of truth for the pinned version;
+# vendor/GenericAgent is a rebuildable local git checkout of lsdefine/GenericAgent.
+vendor/GenericAgent/
+
+# Node
+node_modules/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# Agent task tracking (AGENT_RULES §1)
+.agent/
+
+# Runtime
+runtime/
+temp/
+artifacts/
+logs/
+
+# Test artifacts
+.pt/
+.pytest_tmp/
+
+# Editor / OS / local tooling
+.vscode/
+.idea/
+.zcode/
+.DS_Store
+Thumbs.db
