@@ -1,4 +1,5 @@
 """Generate local GenericAgent config files without overwriting existing state."""
+
 from __future__ import annotations
 
 import argparse
@@ -8,7 +9,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GA_ROOT = Path(os.getenv("GA_ROOT", ROOT / "vendor" / "GenericAgent"))
-MYKEY_TEMPLATE = ROOT / "examples" / "mykey_openai_compatible.py"
 MYKEY_LOCAL_TEMPLATE = ROOT / "examples" / "mykey.local.example.py"
 VISION_TEMPLATE = GA_ROOT / "memory" / "vision_api.template.py"
 VISION_TARGET = GA_ROOT / "memory" / "vision_api.py"
@@ -30,16 +30,10 @@ def main() -> None:
     parser.add_argument("--mykey-only", action="store_true", help="skip vision setup")
     parser.add_argument("--vision-only", action="store_true", help="skip mykey setup")
     parser.add_argument("--force", action="store_true", help="overwrite existing local config")
-    parser.add_argument(
-        "--local",
-        action="store_true",
-        help="use the local GLM-5.2 example instead of the generic placeholder",
-    )
     args = parser.parse_args()
 
     if not args.vision_only:
-        source = MYKEY_LOCAL_TEMPLATE if args.local else MYKEY_TEMPLATE
-        copy_config(source, MYKEY_TARGET, force=args.force)
+        copy_config(MYKEY_LOCAL_TEMPLATE, MYKEY_TARGET, force=args.force)
         print("Edit mykey.py to set apikey, apibase, and model for your endpoint.")
     if not args.mykey_only:
         if VISION_TEMPLATE.is_file():

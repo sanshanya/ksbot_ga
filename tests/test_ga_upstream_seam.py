@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ga_core.ga_handler import ApprovalContext, _make_handler_class, load_ga_modules
+from ga_core.ga_handler import ApprovalContext, make_handler_class, load_ga_modules
 from ga_core.gate import GateDecision
 
 ROOT = Path(__file__).parents[1]
@@ -23,10 +23,8 @@ class AllowGate:
 
 class Parent:
     def __init__(self, workspace: Path) -> None:
-        self._harness_workspace = workspace
-        self._approval_context = ApprovalContext(gate=AllowGate())
+        self._approval_context = ApprovalContext("c", "u", "Alice", AllowGate(), SimpleNamespace())
         self._last_response = ""
-        self._harness_approved_call = None
         self.verbose = False
         self.extrakeyinfo = None
         self.intervene = None
@@ -45,11 +43,9 @@ def exhaust(generator):
         return stop.value
 
 
-# TEST-CONTRACT: req=GA-SEAM-01 | rejects=wrapper handler no longer composes with pinned GenericAgentHandler/StepOutcome | gap=fake-only handler tests | revert=change upstream method contract | mock=none
-
 def test_pinned_handler_executes_inline_eval_and_ask_user(tmp_path: Path) -> None:
     modules = load_ga_modules(GA_ROOT)
-    handler_class = _make_handler_class(modules)
+    handler_class = make_handler_class(modules)
     assert issubclass(handler_class, modules.ga.GenericAgentHandler)
     handler = handler_class(Parent(tmp_path), [], str(tmp_path))
 
@@ -66,8 +62,6 @@ def test_pinned_handler_executes_inline_eval_and_ask_user(tmp_path: Path) -> Non
     assert isinstance(result, modules.agent_loop.StepOutcome)
     assert "2" in str(result.data)
 
-
-# TEST-CONTRACT: req=GA-SEAM-02 | rejects=pinned GenericAgent.abort no longer signals handler code execution | gap=symbol-only probe | revert=remove stop_sig/code_stop_signal behavior upstream | mock=none
 
 def test_pinned_abort_sets_stop_signal() -> None:
     modules = load_ga_modules(GA_ROOT)

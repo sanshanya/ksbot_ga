@@ -15,7 +15,6 @@ def load_script():
     return module
 
 
-# TEST-CONTRACT: req=LOCAL-CONFIG-01 | rejects=configuration generator overwrites existing credentials by default | gap=no overwrite guard | revert=remove target.exists check | mock=none
 def test_copy_config_refuses_existing_target_without_force(tmp_path: Path) -> None:
     module = load_script()
     source = tmp_path / "template.py"

@@ -7,9 +7,52 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from .client import WpsClient
-from .protocol import WpsAttachment, _extract_text, _message_timestamp, _safe_int
+from .protocol import WpsAttachment, _int
 
 ALL_HISTORY_START = 1  # WPS treats 0 as omitted; 1 requests all accessible history.
+
+
+def _timestamp(item: dict[str, Any]) -> float | None:
+    message = item.get("message") if isinstance(item.get("message"), dict) else {}
+    for source in (item, message):
+        for key in ("create_time", "created_at", "ctime", "send_time", "timestamp", "time"):
+            value = source.get(key)
+            if value in (None, ""):
+                continue
+            try:
+                number = float(value)
+                return number / 1000 if number > 10_000_000_000 else number
+            except (TypeError, ValueError):
+                try:
+                    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    pass
+    return None
+
+
+def _extract_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(map(_extract_text, value))
+    if not isinstance(value, dict):
+        return ""
+    if isinstance(rich := value.get("rich_text"), dict):
+        parts: list[str] = []
+        for row in rich.get("elements") or rich.get("content") or []:
+            for item in row.get("elements", [row]) if isinstance(row, dict) else []:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "text":
+                    parts.append(str((item.get("text_content") or {}).get("content", "")))
+                elif item.get("type") == "mention":
+                    parts.append("@" + str((item.get("mention_content") or {}).get("text", "")) + " ")
+        if parts:
+            return "".join(parts)
+    for key in ("text", "content"):
+        if key in value and (text := _extract_text(value[key])):
+            return text
+    return ""
 
 
 def message_id(item: dict[str, Any]) -> str:
@@ -53,7 +96,7 @@ def message_attachments(item: dict[str, Any]) -> tuple[WpsAttachment, ...]:
             kind,
             str(data["storage_key"]),
             str(data.get("name") or ""),
-            _safe_int(data.get("size")),
+            _int(data.get("size")),
             str(data.get("mime") or data.get("type") or ""),
         )
         for kind, data in candidates
@@ -85,8 +128,8 @@ def pages(
 def _sort_key(item: dict[str, Any]) -> tuple[float, int, str]:
     message = item.get("message") if isinstance(item.get("message"), dict) else {}
     return (
-        _message_timestamp(item) or 0,
-        _safe_int(item.get("position") or message.get("position")),
+        _timestamp(item) or 0,
+        _int(item.get("position") or message.get("position")),
         message_id(item),
     )
 
@@ -148,7 +191,7 @@ def record(item: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": message_id(item),
         "sender": name,
-        "time": _format_time(_message_timestamp(item)),
+        "time": _format_time(_timestamp(item)),
         "text": _extract_text(message_content(item)).strip(),
         "attachments": message_attachments(item),
     }

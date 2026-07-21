@@ -17,13 +17,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
-ui = ["prompt-toolkit>=3", "rich>=13", "streamlit>=1.40"]
 vision = ["Pillow>=10"]
 
 [project.scripts]
 ga-wps = "ga_wps.app:main"
-ga-wps-tui = "ga_wps.ui:main_tui"
-ga-wps-streamlit = "ga_wps.ui:main_streamlit"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

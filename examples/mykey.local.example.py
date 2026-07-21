@@ -1,14 +1,4 @@
-"""Minimal GenericAgent model config for a local OpenAI-compatible endpoint.
-
-Copy this file to vendor/GenericAgent/mykey.py and adjust the endpoint/model:
-
-    Copy-Item examples\mykey.local.example.py vendor\GenericAgent\mykey.py
-
-For a local endpoint that ignores authentication, use apikey="EMPTY".
-The Gate also reads this config by default (GA_GATE_CONFIG_KEY=native_oai_config),
-so you do not need to duplicate model settings in .env unless the Gate should use
-a different endpoint.
-"""
+"""Editable GenericAgent model config; the Gate reuses native_oai_config by default."""
 
 native_oai_config = {
     "name": "local-glm-5.2",

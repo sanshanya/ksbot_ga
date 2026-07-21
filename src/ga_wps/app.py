@@ -179,7 +179,9 @@ class GaWpsService:
         )
 
     def start(self) -> None:
-        sp_id = str(self.wps.current_service_principal()["id"]) if self.settings.launch_bridge else ""
+        sp_id = (
+            str(self.wps.current_service_principal()["id"]) if self.settings.launch_bridge else ""
+        )
         self.callback.start()
         if self.settings.launch_bridge:
             self.bridge = self._start_bridge(sp_id)
@@ -288,22 +290,20 @@ class GaWpsService:
     def _process_message(self, message: WpsMessage) -> None:
         session, created = self.registry.get(message.chat_id)
         attachment_paths, observations = self._download_attachments(session, message)
-        bootstrap = self._bootstrap_wps_context(session) if created else ""
+        if created:
+            observations = (*observations, self._bootstrap_wps_context(session))
         text, files = session.run(
             chat_id=message.chat_id,
             user_id=message.sender_id,
             display_name=message.sender_name or f"User({message.sender_id[:6]})",
             user_text=message.text,
-            bootstrap_context=bootstrap,
             attachment_paths=attachment_paths,
             runtime_observations=observations,
         )
         mention = None
         if not message.is_private and message.sender_id:
             mention = self.wps.resolve_mention(
-                message.chat_id,
-                message.sender_id,
-                message.sender_name or f"User({message.sender_id[:6]})",
+                message.sender_id, message.sender_name or f"User({message.sender_id[:6]})"
             )
         self.wps.send_markdown_split(message.chat_id, text, mention=mention)
         for path in files:

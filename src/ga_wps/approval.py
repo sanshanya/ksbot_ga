@@ -17,6 +17,14 @@ _CONSENT = re.compile(
 )
 
 
+def parse_consent(text: str) -> int | None:
+    match = _CONSENT.fullmatch(text.strip())
+    if not match:
+        return None
+    minutes = int(match.group(1) or 0)
+    return minutes if match.group(1) is None or minutes > 0 else None
+
+
 @dataclass
 class PendingApproval:
     chat_id: str
@@ -37,8 +45,13 @@ class ApprovalManager:
         self._windows: dict[tuple[str, str], float] = {}
 
     def request(
-        self, *, chat_id: str, user_id: str, display_name: str,
-        review: str, allow_window: bool = True,
+        self,
+        *,
+        chat_id: str,
+        user_id: str,
+        display_name: str,
+        review: str,
+        allow_window: bool = True,
     ) -> tuple[bool, str]:
         with self._lock:
             key = (chat_id, user_id)
@@ -63,10 +76,14 @@ class ApprovalManager:
             return True, ""
         outcome = "send_failed"
         try:
-            mention = self.wps.resolve_mention(chat_id, user_id, display_name) if user_id else None
+            mention = self.wps.resolve_mention(user_id, display_name) if user_id else None
+            instruction = (
+                "回复“同意”仅执行本次；回复“同意5分钟”（分钟数可替换）开启限时自动同意。"
+                if allow_window
+                else "本次仅支持回复“同意”执行一次，不开放限时自动同意。"
+            )
             prompt = (
-                f"**需要确认的 Kubernetes 操作**\n\n{review}\n\n"
-                "回复“同意”仅执行本次；回复“同意5分钟”（分钟数可替换）开启本群、该发起人的后续受保护写限时自动同意；"
+                f"**需要确认的 Kubernetes 操作**\n\n{review}\n\n{instruction}"
                 "其他回复会取消本次操作并交给模型。"
             )
             self.wps.send_markdown_split(chat_id, prompt, mention=mention)
@@ -91,9 +108,8 @@ class ApprovalManager:
             if pending is None or message.sender_id != pending.user_id:
                 return False
             text = message.text.strip()
-            match = _CONSENT.fullmatch(text)
-            minutes = int(match.group(1) or 0) if match else 0
-            pending.approved = bool(match and (match.group(1) is None or minutes > 0))
+            minutes = parse_consent(text)
+            pending.approved = minutes is not None
             pending.feedback = "" if pending.approved else text
             if pending.approved and minutes and pending.allow_window:
                 pending.window_expires_at = time.time() + minutes * 60
@@ -102,10 +118,10 @@ class ApprovalManager:
         reply = (
             "操作已批准，但本次未开启自动同意窗口。"
             if pending.approved and minutes and not pending.allow_window
-            else
-            f"操作已批准，并开启 {minutes} 分钟自动同意窗口。"
+            else f"操作已批准，并开启 {minutes} 分钟自动同意窗口。"
             if pending.window_expires_at
-            else "操作已批准。" if pending.approved
+            else "操作已批准。"
+            if pending.approved
             else "操作已取消，意见将交给模型继续处理。"
         )
         try:
@@ -139,9 +155,13 @@ class ApprovalManager:
 
     def _audit(self, pending: PendingApproval, outcome: str) -> None:
         record = {
-            "timestamp": int(time.time()), "chat_id": pending.chat_id,
-            "user_id": pending.user_id, "approved": pending.approved,
-            "outcome": outcome, "review": pending.review, "feedback": pending.feedback,
+            "timestamp": int(time.time()),
+            "chat_id": pending.chat_id,
+            "user_id": pending.user_id,
+            "approved": pending.approved,
+            "outcome": outcome,
+            "review": pending.review,
+            "feedback": pending.feedback,
             "window_expires_at": int(pending.window_expires_at),
         }
         self.audit_path.parent.mkdir(parents=True, exist_ok=True)

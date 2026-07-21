@@ -10,7 +10,6 @@ import pytest
 from ga_wps.config import WpsSettings
 
 
-# TEST-CONTRACT: req=CONFIG-BOUNDARY-02 | rejects=WPS transport config remains in ga_core | gap=no WPS-owned settings test | revert=remove WpsSettings and read transport env in CoreSettings | mock=none
 def test_wps_settings_owns_transport_configuration(tmp_path: Path) -> None:
     with patch.dict(
         os.environ,
@@ -46,13 +45,11 @@ def _settings_for_callback(host: str, secret: str) -> WpsSettings:
     )
 
 
-# TEST-CONTRACT: req=CALLBACK-SECRET-01 | rejects=non-loopback callback accepts empty or default secret | gap=secret checked only by callback server when configured | revert=remove non-loopback secret validation | mock=none
 @pytest.mark.parametrize("secret", ["", "change-me"])
 def test_non_loopback_callback_requires_real_secret(secret: str) -> None:
     with pytest.raises(RuntimeError, match="callback secret"):
         _settings_for_callback("0.0.0.0", secret).validate()
 
 
-# TEST-CONTRACT: req=CALLBACK-SECRET-02 | rejects=loopback development callback requires an unnecessary secret | gap=no loopback exception contract | revert=remove loopback exception | mock=none
 def test_loopback_callback_may_use_empty_secret() -> None:
     _settings_for_callback("127.0.0.1", "").validate()

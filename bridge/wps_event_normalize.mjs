@@ -1,4 +1,4 @@
-export function normalize(data, eventCode, currentBotIds, eventId) {
+export function normalize(data, currentBotIds, eventId) {
   const message = data?.message || {};
   const content = message.content ?? data?.content ?? data?.message ?? data;
   const type = message.type || '';
@@ -48,9 +48,7 @@ export function normalize(data, eventCode, currentBotIds, eventId) {
     event_id: message.id || data?.message_id || data?.event_id || eventId || '',
     mentioned: mentionsApp(mentions, currentBotIds) || richMentionsApp(content, currentBotIds),
     sender_id: data?.sender?.id || '',
-    sender_type: data?.sender?.type || '',
-    event_code: eventCode,
-    raw_event: data,
+    sender_name: data?.sender?.name || data?.sender?.sender_name || '',
   };
 }
 

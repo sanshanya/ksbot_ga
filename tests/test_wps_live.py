@@ -21,8 +21,6 @@ wps_chat = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(wps_chat)
 
 
-# TEST-CONTRACT: req=WPS-HISTORY-LIVE-01 | rejects=real WPS history cannot be consumed through the same Skill used by Agent and bootstrap | gap=unit mocks cannot prove API fields | revert=break get_messages/Skill renderer | mock=none
-
 def test_live_wps_skill_history_can_be_fetched_and_rendered(tmp_path) -> None:
     settings = WpsSettings.from_env()
     settings.validate()

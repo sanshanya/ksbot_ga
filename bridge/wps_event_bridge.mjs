@@ -23,7 +23,7 @@ const dispatcher = new Dispatcher().registerFunc('kso.app_chat.message.create', 
   const sender = data?.sender || {};
   if ((sender.type === 'app' || sender.type === 'sp') && [sender.id, sender.app_id].some(id => botIds.includes(id))) return;
   const eventId = event.eventId || event.id || event.uuid || '';
-  const payload = normalize(data, event.eventCode || 'kso.app_chat.message.create', botIds, eventId);
+  const payload = normalize(data, botIds, eventId);
   if (!payload.chat_id) return;
   if (!payload.text && !payload.attachments.length && !payload.cloud_docs.length && !payload.shared_docs.length) {
     payload.text = '[non-text message]';
