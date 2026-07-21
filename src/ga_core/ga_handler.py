@@ -12,6 +12,7 @@ from typing import Any, Protocol
 from .gate import KubectlAiGate
 
 _INLINE_EVAL_LOCK = threading.Lock()
+_MEMORY_SETTLEMENT_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -115,8 +116,20 @@ def make_handler_class(modules: GaModules) -> type:
                 should_exit=True,
             )
 
+        def finish_memory_settlement(self) -> None:
+            if getattr(self, "_memory_settlement_locked", False):
+                self._memory_settlement_locked = False
+                _MEMORY_SETTLEMENT_LOCK.release()
+
         def do_start_long_term_update(self, args: dict[str, Any], response: Any):
-            native = yield from super().do_start_long_term_update(args, response)
+            if not getattr(self, "_memory_settlement_locked", False):
+                _MEMORY_SETTLEMENT_LOCK.acquire()
+                self._memory_settlement_locked = True
+            try:
+                native = yield from super().do_start_long_term_update(args, response)
+            except BaseException:
+                self.finish_memory_settlement()
+                raise
             root, paths = _memory_context(modules, self.cwd)
             sop = root / "memory_management_sop.md"
             data = (

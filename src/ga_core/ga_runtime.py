@@ -100,6 +100,7 @@ class GaChatSession:
                         break
             finally:
                 runner.close()
+                handler.finish_memory_settlement()
                 self.agent.is_running, self.agent.stop_sig = False, False
             self.agent.history = handler.history_info
             final = str(getattr(self.agent, "_last_response", "") or "").strip()

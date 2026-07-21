@@ -40,6 +40,7 @@ def _settings_for_callback(host: str, secret: str) -> WpsSettings:
         recent_history_messages=30,
         seen_events_limit=10,
         approval_timeout_seconds=300,
+        shutdown_timeout_seconds=10,
         launch_bridge=False,
         bridge_node="node",
     )

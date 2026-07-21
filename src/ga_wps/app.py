@@ -8,7 +8,7 @@ import subprocess
 import threading
 import time
 from collections import deque
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
 
 from ga_core.ga_runtime import GaChatSession, GaSessionFactory
@@ -118,6 +118,12 @@ class ChatRegistry:
         with self._lock:
             return self._sessions.get(chat_id)
 
+    def abort_all(self) -> None:
+        with self._lock:
+            sessions = tuple(self._sessions.values())
+        for session in sessions:
+            session.abort()
+
 
 class GaWpsService:
     def __init__(self, settings: WpsSettings) -> None:
@@ -172,8 +178,9 @@ class GaWpsService:
         ).resolve()
         self._queues: dict[str, deque[WpsMessage]] = {}
         self._active_chats: set[str] = set()
-        self._active_requesters: dict[str, str] = {}
         self._stopped = threading.Event()
+        self._stop_lock = threading.RLock()
+        self._stop_result: bool | None = None
         self.seen_events = SeenEvents(
             settings.core.runtime_root / "seen_events.jsonl", settings.seen_events_limit
         )
@@ -198,9 +205,7 @@ class GaWpsService:
         try:
             self._update_wps_context(message)
             if message.text.strip().lower() in {"/stop", "stop", "停止"}:
-                with self._queue_lock:
-                    requester = self._active_requesters.get(message.chat_id, message.sender_id)
-                self.approvals.cancel_chat(message.chat_id, requester)
+                self.approvals.cancel_chat(message.chat_id)
                 session = self.registry.get_existing(message.chat_id)
                 if session is not None:
                     session.abort()
@@ -237,6 +242,8 @@ class GaWpsService:
 
     def _enqueue(self, message: WpsMessage) -> None:
         with self._queue_lock:
+            if self._stopped.is_set():
+                raise RuntimeError("service is stopping")
             queue = self._queues.setdefault(message.chat_id, deque())
             queue.append(message)
             if message.chat_id in self._active_chats:
@@ -250,9 +257,9 @@ class GaWpsService:
                 if not queue:
                     self._queues.pop(message.chat_id, None)
                 raise
-        with self._futures_lock:
-            self._futures.add(future)
-        future.add_done_callback(self._future_done)
+            with self._futures_lock:
+                self._futures.add(future)
+            future.add_done_callback(self._future_done)
 
     def _drain_chat(self, chat_id: str) -> None:
         while True:
@@ -263,7 +270,6 @@ class GaWpsService:
                     self._active_chats.discard(chat_id)
                     return
                 message = queue.popleft()
-                self._active_requesters[chat_id] = message.sender_id
             try:
                 self._process_message(message)
             except Exception as exc:
@@ -274,14 +280,12 @@ class GaWpsService:
                     )
                 except Exception:
                     logger.exception("failed to deliver task failure chat_id=%s", chat_id)
-            finally:
-                with self._queue_lock:
-                    if self._active_requesters.get(chat_id) == message.sender_id:
-                        self._active_requesters.pop(chat_id, None)
 
     def _future_done(self, future: Future[None]) -> None:
         with self._futures_lock:
             self._futures.discard(future)
+        if future.cancelled():
+            return
         try:
             future.result()
         except Exception:
@@ -425,19 +429,36 @@ class GaWpsService:
             text=True,
         )
 
-    def stop(self) -> None:
-        if self._stopped.is_set():
-            return
-        self._stopped.set()
-        self.approvals.cancel_all()
-        self.callback.stop()
-        if self.bridge and self.bridge.poll() is None:
-            self.bridge.terminate()
-            try:
-                self.bridge.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.bridge.kill()
-        self.executor.shutdown(wait=True, cancel_futures=False)
+    def stop(self) -> bool:
+        with self._stop_lock:
+            if self._stop_result is not None:
+                return self._stop_result
+            if self._stopped.is_set():
+                return False
+            deadline = time.monotonic() + self.settings.shutdown_timeout_seconds
+            self._stopped.set()
+            self.approvals.cancel_all()
+            with self._queue_lock:
+                for queue in self._queues.values():
+                    queue.clear()
+            self.registry.abort_all()
+            self.callback.stop()
+            with self._futures_lock:
+                futures = tuple(self._futures)
+            for future in futures:
+                future.cancel()
+            self.executor.shutdown(wait=False, cancel_futures=True)
+            if self.bridge and self.bridge.poll() is None:
+                self.bridge.terminate()
+                try:
+                    self.bridge.wait(timeout=max(0.01, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    self.bridge.kill()
+            _, pending = wait(futures, timeout=max(0, deadline - time.monotonic()))
+            self._stop_result = not pending
+            if pending:
+                logger.error("shutdown grace expired with %d active task(s)", len(pending))
+            return self._stop_result
 
 
 def main() -> None:
@@ -450,8 +471,13 @@ def main() -> None:
     service = GaWpsService(settings)
     service.start()
 
+    def shutdown() -> None:
+        if not service.stop():
+            logger.critical("forcing process exit after shutdown grace")
+            os._exit(1)
+
     def stop_handler(_signum: int, _frame: object) -> None:
-        service.stop()
+        shutdown()
 
     signal.signal(signal.SIGINT, stop_handler)
     signal.signal(signal.SIGTERM, stop_handler)
@@ -460,7 +486,7 @@ def main() -> None:
             if service.bridge and service.bridge.poll() is not None:
                 raise RuntimeError(f"WPS event bridge exited with {service.bridge.returncode}")
     finally:
-        service.stop()
+        shutdown()
 
 
 if __name__ == "__main__":

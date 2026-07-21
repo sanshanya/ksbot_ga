@@ -21,6 +21,7 @@ class WpsSettings:
     recent_history_messages: int
     seen_events_limit: int
     approval_timeout_seconds: int
+    shutdown_timeout_seconds: int
     launch_bridge: bool
     bridge_node: str
 
@@ -41,6 +42,7 @@ class WpsSettings:
             recent_history_messages=env_int("GA_WPS_RECENT_HISTORY_MESSAGES", 30),
             seen_events_limit=env_int("GA_WPS_SEEN_EVENTS_LIMIT", 2048),
             approval_timeout_seconds=env_int("GA_WPS_APPROVAL_TIMEOUT_SECONDS", 300),
+            shutdown_timeout_seconds=env_int("GA_WPS_SHUTDOWN_TIMEOUT_SECONDS", 10),
             launch_bridge=env_bool("GA_WPS_LAUNCH_BRIDGE", True),
             bridge_node=os.getenv("GA_WPS_NODE", "node"),
         )
@@ -60,3 +62,5 @@ class WpsSettings:
             raise RuntimeError("non-loopback callback requires a non-default callback secret")
         if self.recent_history_messages > 50:
             raise RuntimeError("GA_WPS_RECENT_HISTORY_MESSAGES must be <= 50")
+        if self.shutdown_timeout_seconds < 1:
+            raise RuntimeError("GA_WPS_SHUTDOWN_TIMEOUT_SECONDS must be positive")

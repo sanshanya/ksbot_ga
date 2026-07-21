@@ -114,7 +114,7 @@ def test_feedback_timeout_and_stop_do_not_execute(tmp_path: Path) -> None:
 
     stopped = manager(tmp_path / "stop", timeout=5)
     thread, result = spawn(stopped)
-    assert stopped.cancel_chat("chat-1", "another-member") is True
+    assert stopped.cancel_chat("chat-1") is True
     thread.join(timeout=2)
     assert result == [(False, "/stop")]
 
@@ -133,7 +133,7 @@ def test_timed_window_is_scoped_and_revocable(tmp_path: Path) -> None:
     assert approvals.request(chat_id="chat-1", user_id="user-2", **request) == (False, "")
     assert approvals.request(chat_id="chat-2", user_id="user-1", **request) == (False, "")
 
-    approvals.cancel_chat("chat-1", "user-1")
+    approvals.cancel_chat("chat-1")
     assert approvals.request(chat_id="chat-1", user_id="user-1", **request) == (False, "")
 
 

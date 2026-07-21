@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import ga_core.ga_handler as ga_handler
 import ga_core.ga_runtime as ga_runtime
 from ga_core.ga_handler import GaModules
 from ga_core.ga_runtime import GaChatSession, GaSessionFactory
@@ -66,6 +67,14 @@ def test_session_preserves_history_observations_and_artifacts(tmp_path) -> None:
         approval_sink=object(),
         max_turns=5,
     )
+    native_loop = session.modules.agent_loop.agent_runner_loop
+
+    def loop_with_memory_lock(*args, **kwargs):
+        ga_handler._MEMORY_SETTLEMENT_LOCK.acquire()
+        args[3]._memory_settlement_locked = True
+        yield from native_loop(*args, **kwargs)
+
+    session.modules.agent_loop.agent_runner_loop = loop_with_memory_lock
     artifact = session.artifacts / "report.txt"
     artifact.write_text("deliverable", encoding="utf-8")
     text, files = session.run(
@@ -79,6 +88,8 @@ def test_session_preserves_history_observations_and_artifacts(tmp_path) -> None:
     assert files == (artifact,)
     assert "missing.csv failed to download" in captured[0]
     assert session.agent.history[-1] == "[Agent] done"
+    assert ga_handler._MEMORY_SETTLEMENT_LOCK.acquire(timeout=0.1)
+    ga_handler._MEMORY_SETTLEMENT_LOCK.release()
 
 
 def test_factory_workspace_names_are_readable_and_collision_safe(tmp_path, monkeypatch) -> None:

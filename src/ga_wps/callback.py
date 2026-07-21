@@ -54,6 +54,7 @@ class CallbackServer:
                 logger.debug("callback: " + fmt, *args)
 
         self._server = ThreadingHTTPServer((self.host, self.port), Handler)
+        self._server.daemon_threads = True
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
 

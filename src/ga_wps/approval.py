@@ -134,13 +134,16 @@ class ApprovalManager:
         with self._lock:
             return chat_id in self._pending
 
-    def cancel_chat(self, chat_id: str, user_id: str) -> bool | None:
+    def cancel_chat(self, chat_id: str) -> bool | None:
         with self._lock:
+            window = False
+            for key in tuple(self._windows):
+                if key[0] == chat_id:
+                    window = True
+                    self._windows.pop(key)
             pending = self._pending.get(chat_id)
             if pending is None:
-                self._windows.pop((chat_id, user_id), None)
-                return None
-            self._windows.pop((chat_id, pending.user_id), None)
+                return True if window else None
             pending.approved = False
             pending.feedback = "/stop"
             pending.event.set()

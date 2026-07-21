@@ -142,12 +142,13 @@ def test_approved_call_resumes_the_exact_original_once() -> None:
     assert outcome.data["status"] == "success"
 
 
-def test_long_term_update_preserves_ga_global_memory(tmp_path) -> None:
-    ga_root = tmp_path / "ga"
-    memory = ga_root / "memory"
+def test_long_term_memory_paths_and_cross_chat_serialization(tmp_path) -> None:
+    root = tmp_path / "ga"
+    memory = root / "memory"
     memory.mkdir(parents=True)
-    sop = memory / "memory_management_sop.md"
-    sop.write_text("L2: global_mem.txt\nL3: ../memory/", encoding="utf-8")
+    (memory / "memory_management_sop.md").write_text(
+        "L2: global_mem.txt\nL3: ../memory/", encoding="utf-8"
+    )
 
     class NativeMemory(BaseHandler):
         def do_start_long_term_update(self, *_args):
@@ -156,15 +157,31 @@ def test_long_term_update_preserves_ga_global_memory(tmp_path) -> None:
 
     custom = modules(
         NativeMemory,
-        script_dir=str(ga_root),
+        script_dir=str(root),
         file_read=lambda path, show_linenos=False: Path(path).read_text(encoding="utf-8"),
     )
-    handler = make_handler_class(custom)(SimpleNamespace(_approval_context=None), [], str(tmp_path / "chat"))
-    items, outcome = exhaust(handler.do_start_long_term_update({}, SimpleNamespace(content="")))
+    handler_class = make_handler_class(custom)
+    first = handler_class(SimpleNamespace(), [], str(tmp_path / "first"))
+    items, outcome = exhaust(first.do_start_long_term_update({}, SimpleNamespace(content="")))
     assert items == ["native\n"]
     assert (memory / "global_mem.txt").as_posix() in outcome.next_prompt
     assert memory.as_posix() in outcome.data
 
+    second = handler_class(SimpleNamespace(), [], str(tmp_path / "second"))
+    finished = []
+
+    def settle_second():
+        exhaust(second.do_start_long_term_update({}, SimpleNamespace(content="")))
+        finished.append(True)
+        second.finish_memory_settlement()
+
+    thread = threading.Thread(target=settle_second)
+    thread.start()
+    thread.join(0.05)
+    assert not finished
+    first.finish_memory_settlement()
+    thread.join(1)
+    assert finished
 
 def test_inline_python_eval_is_serialized() -> None:
     state = {"active": 0, "max": 0}
