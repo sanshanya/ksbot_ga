@@ -17,8 +17,10 @@ from ga_core.skills import build_skill_prompt
 
 from .approval import ApprovalManager
 from .config import WpsSettings
-from .history import history as render_history
-from .wps import CallbackServer, WpsClient, WpsMessage
+from .history import attachment_directory, attachment_target, history as render_history
+from .callback import CallbackServer
+from .client import WpsClient
+from .protocol import WpsMessage
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,7 @@ class SeenEvents:
         self._lock = threading.Lock()
         self._order: deque[str] = deque()
         self._ids: set[str] = set()
+        self._inflight: set[str] = set()
         self._writes = 0
         if path.is_file():
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -54,19 +57,42 @@ class SeenEvents:
         temp.replace(self.path)
         self._writes = 0
 
-    def accept(self, event_id: str) -> bool:
+    def claim(self, event_id: str) -> bool:
+        if not event_id:
+            return True
+        with self._lock:
+            if event_id in self._ids or event_id in self._inflight:
+                return False
+            self._inflight.add(event_id)
+            return True
+
+    def release(self, event_id: str) -> None:
+        if not event_id:
+            return
+        with self._lock:
+            self._inflight.discard(event_id)
+
+    def record_accepted(self, event_id: str) -> bool:
         if not event_id:
             return True
         with self._lock:
             if event_id in self._ids:
+                self._inflight.discard(event_id)
                 return False
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                with self.path.open("a", encoding="utf-8") as handle:
+                    handle.write(
+                        json.dumps({"event_id": event_id, "seen_at": int(time.time())}) + "\n"
+                    )
+            except Exception:
+                self._inflight.discard(event_id)
+                raise
             if len(self._order) >= self.limit:
                 self._ids.discard(self._order.popleft())
             self._order.append(event_id)
             self._ids.add(event_id)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps({"event_id": event_id, "seen_at": int(time.time())}) + "\n")
+            self._inflight.discard(event_id)
             self._writes += 1
             if self._writes >= self.limit:
                 self._compact()
@@ -146,6 +172,7 @@ class GaWpsService:
         ).resolve()
         self._queues: dict[str, deque[WpsMessage]] = {}
         self._active_chats: set[str] = set()
+        self._active_requesters: dict[str, str] = {}
         self._stopped = threading.Event()
         self.seen_events = SeenEvents(
             settings.core.runtime_root / "seen_events.jsonl", settings.seen_events_limit
@@ -163,34 +190,48 @@ class GaWpsService:
         )
 
     def on_message(self, message: WpsMessage) -> None:
-        if self._stopped.is_set() or not self.seen_events.accept(message.event_id):
+        if self._stopped.is_set() or not self.seen_events.claim(message.event_id):
             return
-        self._update_wps_context(message)
-        if message.text.strip().lower() in {"/stop", "stop", "停止"}:
-            cancelled = self.approvals.cancel_chat(message.chat_id, message.sender_id)
-            if cancelled is False:
-                self.wps.send_markdown_split(message.chat_id, "只有当前任务发起人可以停止该任务。")
+        accepted = False
+        try:
+            self._update_wps_context(message)
+            if message.text.strip().lower() in {"/stop", "stop", "停止"}:
+                with self._queue_lock:
+                    requester = self._active_requesters.get(message.chat_id, message.sender_id)
+                self.approvals.cancel_chat(message.chat_id, requester)
+                session = self.registry.get_existing(message.chat_id)
+                if session is not None:
+                    session.abort()
+                reply = (
+                    "已停止当前任务。" if session is not None else "当前会话没有正在运行的任务。"
+                ) + " 自动同意窗口已关闭。"
+                with self._queue_lock:
+                    if queue := self._queues.get(message.chat_id):
+                        queue.clear()
+                self.seen_events.record_accepted(message.event_id)
+                accepted = True
+                self.wps.send_markdown_split(message.chat_id, reply)
                 return
-            session = self.registry.get_existing(message.chat_id)
-            if session is not None:
-                session.abort()
-            reply = ("已停止当前任务。" if session is not None else "当前会话没有正在运行的任务。") + " 自动同意窗口已关闭。"
-            with self._queue_lock:
-                if queue := self._queues.get(message.chat_id):
-                    queue.clear()
-            self.wps.send_markdown_split(message.chat_id, reply)
-            return
-        if self.approvals.handle_reply(message):
-            return
-        if not message.is_private and not message.mentioned:
-            return
-        if self.approvals.has_pending(message.chat_id):
-            self.wps.send_markdown_split(
-                message.chat_id,
-                "该操作正在等待任务发起人确认。其他成员的消息不会改变审批结果。",
-            )
-            return
-        self._enqueue(message)
+            if self.approvals.handle_reply(message):
+                self.seen_events.record_accepted(message.event_id)
+                accepted = True
+                return
+            if not message.is_private and not message.mentioned:
+                return
+            if self.approvals.has_pending(message.chat_id):
+                self.wps.send_markdown_split(
+                    message.chat_id,
+                    "该操作正在等待任务发起人确认。其他成员的消息不会改变审批结果。",
+                )
+                self.seen_events.record_accepted(message.event_id)
+                accepted = True
+                return
+            self._enqueue(message)
+            self.seen_events.record_accepted(message.event_id)
+            accepted = True
+        finally:
+            if not accepted:
+                self.seen_events.release(message.event_id)
 
     def _enqueue(self, message: WpsMessage) -> None:
         with self._queue_lock:
@@ -199,7 +240,14 @@ class GaWpsService:
             if message.chat_id in self._active_chats:
                 return
             self._active_chats.add(message.chat_id)
-        future = self.executor.submit(self._drain_chat, message.chat_id)
+            try:
+                future = self.executor.submit(self._drain_chat, message.chat_id)
+            except Exception:
+                queue.pop()
+                self._active_chats.discard(message.chat_id)
+                if not queue:
+                    self._queues.pop(message.chat_id, None)
+                raise
         with self._futures_lock:
             self._futures.add(future)
         future.add_done_callback(self._future_done)
@@ -213,6 +261,7 @@ class GaWpsService:
                     self._active_chats.discard(chat_id)
                     return
                 message = queue.popleft()
+                self._active_requesters[chat_id] = message.sender_id
             try:
                 self._process_message(message)
             except Exception as exc:
@@ -223,6 +272,10 @@ class GaWpsService:
                     )
                 except Exception:
                     logger.exception("failed to deliver task failure chat_id=%s", chat_id)
+            finally:
+                with self._queue_lock:
+                    if self._active_requesters.get(chat_id) == message.sender_id:
+                        self._active_requesters.pop(chat_id, None)
 
     def _future_done(self, future: Future[None]) -> None:
         with self._futures_lock:
@@ -234,7 +287,7 @@ class GaWpsService:
 
     def _process_message(self, message: WpsMessage) -> None:
         session, created = self.registry.get(message.chat_id)
-        attachment_paths = self._download_attachments(session, message)
+        attachment_paths, observations = self._download_attachments(session, message)
         bootstrap = self._bootstrap_wps_context(session) if created else ""
         text, files = session.run(
             chat_id=message.chat_id,
@@ -243,6 +296,7 @@ class GaWpsService:
             user_text=message.text,
             bootstrap_context=bootstrap,
             attachment_paths=attachment_paths,
+            runtime_observations=observations,
         )
         mention = None
         if not message.is_private and message.sender_id:
@@ -255,8 +309,14 @@ class GaWpsService:
         for path in files:
             try:
                 self.wps.upload_file(message.chat_id, path)
-            except Exception:
+            except Exception as exc:
+                failure = f"Artifact delivery failed for {path.name}: {exc}"
+                session.agent.history.append(f"[Runtime observation] {failure}")
                 logger.exception("failed to upload artifact %s", path)
+                try:
+                    self.wps.send_markdown_split(message.chat_id, failure)
+                except Exception:
+                    logger.exception("failed to report artifact delivery failure %s", path)
 
     def _update_wps_context(self, message: WpsMessage) -> None:
         workspace = self.registry.factory.workspace_for(message.chat_id)
@@ -306,13 +366,13 @@ class GaWpsService:
 
     def _download_attachments(
         self, session: GaChatSession, message: WpsMessage
-    ) -> tuple[Path, ...]:
+    ) -> tuple[tuple[Path, ...], tuple[str, ...]]:
         paths: list[Path] = []
+        observations: list[str] = []
         for index, attachment in enumerate(message.attachments, 1):
-            suffix = Path(attachment.name).suffix
-            name = attachment.name or f"{attachment.kind}_{index}{suffix}"
-            safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in name)
-            target = session.downloads / safe
+            target = attachment_target(
+                session.downloads, message.event_id, index, attachment.name, attachment.kind
+            )
             try:
                 paths.append(
                     self.wps.download_attachment(
@@ -322,19 +382,32 @@ class GaWpsService:
                         target=target,
                     )
                 )
-            except Exception:
+            except Exception as exc:
+                observations.append(
+                    f"Attachment download failed for {attachment.name or attachment.kind} "
+                    f"at {target}: {exc}"
+                )
                 logger.exception("failed to download WPS attachment")
+        event_dir = attachment_directory(session.downloads, message.event_id)
         for url in message.cloud_doc_links:
-            path = session.downloads / "cloud_docs.txt"
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(url + "\n")
-            paths.append(path)
+            path = event_dir / "cloud_docs.txt"
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(url + "\n")
+                paths.append(path)
+            except Exception as exc:
+                observations.append(f"Cloud document record failed for {url}: {exc}")
         if message.shared_doc_ids:
-            path = session.downloads / "shared_doc_ids.txt"
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write("\n".join(message.shared_doc_ids) + "\n")
-            paths.append(path)
-        return tuple(dict.fromkeys(paths))
+            path = event_dir / "shared_doc_ids.txt"
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write("\n".join(message.shared_doc_ids) + "\n")
+                paths.append(path)
+            except Exception as exc:
+                observations.append(f"Shared document record failed: {exc}")
+        return tuple(dict.fromkeys(paths)), tuple(observations)
 
     def _start_bridge(self, sp_id: str) -> subprocess.Popen[str]:
         bridge_dir = self.settings.core.project_root / "bridge"

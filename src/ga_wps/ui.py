@@ -7,9 +7,10 @@ import sys
 from pathlib import Path
 
 from ga_core.config import CoreSettings
-from ga_core.ga_runtime import install_ui_agent, load_ga_modules
+from ga_core.ga_handler import load_ga_modules
 from ga_core.gate import KubectlAiGate
 from ga_core.skills import build_skill_prompt
+from ga_core.ga_ui import install_ui_agent
 
 
 def prepare_ui() -> tuple[CoreSettings, object]:

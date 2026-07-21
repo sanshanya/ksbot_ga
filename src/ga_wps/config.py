@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,5 +49,14 @@ class WpsSettings:
         self.core.validate()
         if not self.client_id or not self.client_secret:
             raise RuntimeError("WPS365_CLIENT_ID and WPS365_CLIENT_SECRET are required")
+        host = self.callback_host.strip().casefold()
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = host == "localhost"
+        if not loopback and (
+            not self.callback_secret.strip() or self.callback_secret.strip().casefold() == "change-me"
+        ):
+            raise RuntimeError("non-loopback callback requires a non-default callback secret")
         if self.recent_history_messages > 50:
             raise RuntimeError("GA_WPS_RECENT_HISTORY_MESSAGES must be <= 50")

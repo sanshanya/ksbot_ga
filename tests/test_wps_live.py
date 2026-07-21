@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from ga_wps.config import WpsSettings
-from ga_wps.wps import WpsClient
+from ga_wps.client import WpsClient
 
 CHAT_ID = os.getenv("WPS_HISTORY_TEST_CHAT_ID", "")
 pytestmark = pytest.mark.skipif(

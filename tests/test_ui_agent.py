@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from ga_core.ga_runtime import GaModules, install_ui_agent
+from ga_core.ga_handler import GaModules
+from ga_core.ga_ui import install_ui_agent
 
 
 class FakeAgent:

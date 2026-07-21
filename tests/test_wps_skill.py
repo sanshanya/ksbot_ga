@@ -49,7 +49,7 @@ def _simple_api() -> FakeWps:
     return FakeWps({(None, None): (values, ""), (1, None): (values, "")})
 
 
-# TEST-CONTRACT: req=WPS-SKILL-01 | rejects=opaque host-only context and inaccessible previous attachment | mock=WPS boundary
+# TEST-CONTRACT: req=WPS-SKILL-01 | rejects=opaque host-only context, inaccessible previous attachment, and flat shared attachment paths | mock=WPS boundary
 def test_history_and_download_are_explainable_ga_callable_capabilities(tmp_path) -> None:
     api = _simple_api()
     ctx = {"chat_id": "chat-1", "workspace": str(tmp_path), "current_event_id": "current"}
@@ -57,8 +57,10 @@ def test_history_and_download_are_explainable_ga_callable_capabilities(tmp_path)
     assert "Source:" in result and "Refresh with GA code_run:" in result
     assert "latest answer" in result and "current" not in result and "\ufffd" not in result
     downloaded = wps_chat.download(api, ctx)
-    path = tmp_path / "downloads" / "file_file.txt"
-    assert path.read_text(encoding="utf-8") == "attachment body" and str(path) in downloaded
+    paths = list((tmp_path / "downloads").rglob("*.txt"))
+    assert len(paths) == 1 and paths[0].name == "01_file.txt"
+    assert paths[0].read_text(encoding="utf-8") == "attachment body"
+    assert str(paths[0]) in downloaded
     assert api.downloads == [("chat-1", "file", "file")]
 
 

@@ -41,6 +41,17 @@ contexts:
     # An unlisted namespace is treated as non-production so the Agent remains autonomous.
     unlisted_namespace_write_policy: allow
 
+  nx-online:
+    aliases:
+      - inference-ningxia-online-env
+    kubeconfig_paths:
+      - E:\github\ksbot_ga\vendor\GenericAgent\temp\ningxia-online.yaml
+    description: Ningxia Kubernetes cluster (A800/gm302 machines)
+    environment_scope: namespace
+    cluster_scoped_write_policy: approval_required
+    all_namespaces_write_policy: approval_required
+    unlisted_namespace_write_policy: allow
+
 policy:
   unknown_context: model_fixable
   unresolved_target: model_fixable

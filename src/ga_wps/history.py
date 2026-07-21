@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from .wps import WpsAttachment, WpsClient, _extract_text, _message_timestamp, _safe_int
+from .client import WpsClient
+from .protocol import WpsAttachment, _extract_text, _message_timestamp, _safe_int
 
 ALL_HISTORY_START = 1  # WPS treats 0 as omitted; 1 requests all accessible history.
 
@@ -13,6 +15,18 @@ ALL_HISTORY_START = 1  # WPS treats 0 as omitted; 1 requests all accessible hist
 def message_id(item: dict[str, Any]) -> str:
     nested = item.get("message") if isinstance(item.get("message"), dict) else {}
     return str(item.get("id") or item.get("message_id") or nested.get("id") or "")
+
+
+def attachment_directory(downloads: Path, message_id: str) -> Path:
+    digest = hashlib.sha256(message_id.encode("utf-8", errors="replace")).hexdigest()[:12]
+    return downloads / digest
+
+
+def attachment_target(
+    downloads: Path, message_id: str, index: int, name: str, kind: str
+) -> Path:
+    safe = "".join(char if char.isalnum() or char in "._-" else "_" for char in name)[:160]
+    return attachment_directory(downloads, message_id) / f"{index:02d}_{safe or kind}"
 
 
 def message_content(item: dict[str, Any]) -> Any:
@@ -215,9 +229,13 @@ def download(
     if index > len(found):
         raise RuntimeError(f"message has {len(found)} attachment(s); index {index} is invalid")
     attachment, wanted = found[index - 1], message_id(item)
-    raw_name = attachment.name or attachment.kind
-    name = "".join(char if char.isalnum() or char in "._-" else "_" for char in raw_name)[:160]
-    target = Path(str(context.get("workspace") or Path.cwd())) / "downloads" / f"{wanted[:12]}_{name or 'attachment'}"
+    target = attachment_target(
+        Path(str(context.get("workspace") or Path.cwd())) / "downloads",
+        wanted,
+        index,
+        attachment.name,
+        attachment.kind,
+    )
     path = api.download_attachment(
         chat_id=str(context["chat_id"]),
         message_id=wanted,

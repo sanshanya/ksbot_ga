@@ -3,7 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import ga_core.ga_runtime as ga_runtime
-from ga_core.ga_runtime import GaChatSession, GaModules, GaSessionFactory
+from ga_core.ga_handler import GaModules
+from ga_core.ga_runtime import GaChatSession, GaSessionFactory
 
 
 class FakeBaseHandler:
@@ -104,6 +105,29 @@ def test_extract_attachments_delivers_files_from_response(tmp_path) -> None:
     assert len(files) == 1
     assert files[0].name == "report.txt"
     assert files[0].read_text(encoding="utf-8") == "deliverable content"
+
+
+# TEST-CONTRACT: req=ATTACHMENT-OBSERVATION-01 | rejects=runtime evidence failure is absent from the Agent input | gap=GaChatSession only accepts user text and paths | revert=remove runtime_observations from prompt construction | mock=fake_loop (agent loop boundary)=>prompt assembly runs real
+def test_runtime_observation_is_visible_to_agent(tmp_path) -> None:
+    captured: list[str] = []
+
+    def loop(client, system_prompt, user_input, handler, tools_schema, **kwargs):
+        captured.append(user_input)
+        response = SimpleNamespace(content="Acknowledged")
+        handler.turn_end_callback(response, [], [], 1, "", {})
+        yield response.content
+
+    session = _make_session(tmp_path, "ignored")
+    session.modules.agent_loop.agent_runner_loop = loop
+    session.run(
+        chat_id="chat-1",
+        user_id="user-1",
+        display_name="Alice",
+        user_text="Read the attachment",
+        runtime_observations=("Attachment missing.csv failed to download: WPS unavailable",),
+    )
+
+    assert "Attachment missing.csv failed to download: WPS unavailable" in captured[0]
 
 
 # TEST-CONTRACT: req=SESSION-WORKSPACE-01 | rejects=different chat ids share one sanitized workspace | gap=no collision case | revert=remove chat-id digest from GaSessionFactory.create | mock=GaChatSession constructor boundary=>workspace naming runs real

@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from ga_core.config import load_dotenv  # noqa: E402
 from ga_wps.history import download, history, message_id, pages  # noqa: E402,F401
-from ga_wps.wps import WpsClient  # noqa: E402
+from ga_wps.client import WpsClient  # noqa: E402
 
 SCRIPT = Path(__file__).resolve()
 

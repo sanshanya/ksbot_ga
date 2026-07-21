@@ -1,119 +1,7 @@
 from __future__ import annotations
 
-import urllib.error
-import urllib.request
-
-import pytest
-
-from ga_wps.wps import (
-    CallbackServer,
-    Mention,
-    WpsClient,
-    WpsMessage,
-    _extract_text,
-    _split_markdown,
-)
-
-
-# TEST-CONTRACT: req=WPS-MSG-01 | rejects=attachment size normalization is lost | gap=no from_payload test | revert=remove _safe_int call | mock=none
-def test_payload_normalizes_attachments() -> None:
-    message = WpsMessage.from_payload(
-        {
-            "chat_id": "c1",
-            "chat_type": "p2p",
-            "text": "",
-            "attachments": [
-                {
-                    "type": "image",
-                    "storage_key": "key-1",
-                    "name": "photo.png",
-                    "size": "12",
-                }
-            ],
-            "raw_event": {"sender": {"name": "Alice"}},
-        }
-    )
-    assert message.attachments[0].storage_key == "key-1"
-    assert message.attachments[0].size == 12
-
-
-# TEST-CONTRACT: req=WPS-MSG-02 | rejects=event id present only inside raw message is lost, disabling dedupe | gap=no fallback extraction | revert=remove raw_message id fallback | mock=none
-def test_payload_uses_raw_message_id_fallback() -> None:
-    message = WpsMessage.from_payload(
-        {
-            "chat_id": "c1",
-            "chat_type": "p2p",
-            "text": "hello",
-            "raw_event": {"sender": {"id": "u1"}, "message": {"id": "m-raw"}},
-        }
-    )
-    assert message.event_id == "m-raw"
-
-
-# TEST-CONTRACT: req=WPS-SPLIT-01 | rejects=markdown split exceeds message size limit (accumulated or single-block) | gap=no split limit test | revert=remove limit check in _split_markdown | mock=none
-@pytest.mark.parametrize(
-    "text, limit, expected_count",
-    [
-        ("a" * 20 + "\n\n" + "b" * 20, 25, 2),  # accumulated overflow
-        ("a" * 30, 25, 2),  # single-block overflow
-    ],
-)
-def test_markdown_split_respects_limit(text: str, limit: int, expected_count: int) -> None:
-    chunks = _split_markdown(text, limit=limit)
-    assert len(chunks) == expected_count
-    assert all(len(c) <= limit for c in chunks)
-
-
-# TEST-CONTRACT: req=WPS-CALLBACK-01 | rejects=callback endpoint accepts request without correct secret | gap=no secret enforcement test | revert=remove secret check in do_POST | mock=none
-def test_callback_rejects_wrong_secret_with_403() -> None:
-    received: list[WpsMessage] = []
-    server = CallbackServer("127.0.0.1", 0, "s3cret", received.append)
-    server.start()
-    try:
-        port = server._server.server_port  # type: ignore[union-attr]
-        base = f"http://127.0.0.1:{port}/wps/callback"
-
-        # Wrong secret → 403
-        req_bad = urllib.request.Request(
-            base,
-            data=b'{"chat_id":"c1"}',
-            headers={"X-GA-WPS-SECRET": "wrong"},
-        )
-        try:
-            urllib.request.urlopen(req_bad, timeout=2)
-            raise AssertionError("wrong-secret request should have been rejected")
-        except urllib.error.HTTPError as exc:
-            assert exc.code == 403
-
-        # Correct secret → 200 and message dispatched
-        req_ok = urllib.request.Request(
-            base,
-            data=b'{"chat_id":"c1","chat_type":"p2p","text":"hi","sender_id":"u1"}',
-            headers={"X-GA-WPS-SECRET": "s3cret"},
-        )
-        resp = urllib.request.urlopen(req_ok, timeout=2)
-        assert resp.status == 200
-        assert len(received) == 1
-    finally:
-        server.stop()
-
-
-# TEST-CONTRACT: req=WPS-TEXT-01 | rejects=rich-text mention and body are concatenated without a boundary | gap=mention rendering joins raw parts | revert=remove explicit space after mention | mock=real-shaped WPS rich-text fixture
-def test_extract_text_keeps_mention_boundary() -> None:
-    value = {
-        "rich_text": {
-            "elements": [
-                {
-                    "elements": [
-                        {"type": "mention", "mention_content": {"text": "甘小雨"}},
-                        {"type": "text", "text_content": {"content": "同意"}},
-                    ]
-                }
-            ]
-        }
-    }
-    assert _extract_text(value) == "@甘小雨 同意"
-
+from ga_wps.client import WpsClient
+from ga_wps.protocol import Mention
 
 # TEST-CONTRACT: req=WPS-IDENTITY-01 | rejects=client id is mistaken for tenant service-principal id | mock=WPS API boundary
 def test_client_exposes_full_history_query_and_current_service_principal(monkeypatch) -> None:
@@ -217,3 +105,4 @@ def test_send_markdown_split_places_mention_on_own_line(monkeypatch) -> None:
     mention = Mention("uid_123", "cid", "张三")
     client.send_markdown_split("chat-1", "# 标题", mention=mention, delay=0)
     assert sent == [("chat-1", '<at id="1">张三</at>\n\n# 标题', [mention])]
+

@@ -14,10 +14,14 @@ from pathlib import Path
 _PART = re.compile(r"[\u3400-\u9fff]|[A-Za-z0-9_]+|[^\s]")
 MODULE_LIMIT = 30_000
 MODULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("core.handler", ("src/ga_core/ga_handler.py",)),
     ("core.runtime", ("src/ga_core/ga_runtime.py",)),
+    ("core.ui-adapter", ("src/ga_core/ga_ui.py",)),
     ("core.gate", ("src/ga_core/gate.py",)),
     ("core.config-skills", ("src/ga_core/config.py", "src/ga_core/skills.py", "src/ga_core/__init__.py")),
-    ("wps.protocol", ("src/ga_wps/wps.py",)),
+    ("wps.protocol", ("src/ga_wps/protocol.py",)),
+    ("wps.client", ("src/ga_wps/client.py",)),
+    ("wps.callback", ("src/ga_wps/callback.py",)),
     ("wps.history", ("src/ga_wps/history.py",)),
     ("wps.service", ("src/ga_wps/app.py", "src/ga_wps/config.py", "src/ga_wps/__init__.py")),
     ("wps.approval", ("src/ga_wps/approval.py",)),

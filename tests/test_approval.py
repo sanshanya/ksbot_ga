@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from ga_wps.approval import ApprovalManager
-from ga_wps.wps import WpsMessage
+from ga_wps.protocol import WpsMessage
 
 
 class FakeWps:
@@ -121,14 +121,13 @@ def test_approval_timeout_is_rejection(tmp_path: Path) -> None:
     ) == (False, "")
 
 
-# TEST-CONTRACT: req=APPROVAL-05 | rejects=/stop cannot cancel requester's pending approval | gap=no per-chat cancellation | revert=remove cancel_chat event.set | mock=FakeWps boundary
-def test_requester_can_cancel_pending_approval(tmp_path: Path) -> None:
+# TEST-CONTRACT: req=STOP-CHAT-EMERGENCY-01 | rejects=/stop is limited to the message sender during a chat emergency | gap=approval cancellation enforces requester ownership | revert=restore requester check in cancel_chat | mock=FakeWps boundary
+def test_any_chat_member_can_cancel_pending_approval(tmp_path: Path) -> None:
     manager = ApprovalManager(wps=FakeWps(), timeout_seconds=5, audit_path=tmp_path / "audit.jsonl")
     thread, result = _spawn_request(manager)
     thread.start()
     _wait_for_prompt(manager.wps)
-    assert manager.cancel_chat("chat-1", "user-2") is False
-    assert manager.cancel_chat("chat-1", "user-1") is True
+    assert manager.cancel_chat("chat-1", "user-2") is True
     thread.join(timeout=2)
     assert result == [(False, "/stop")]
 
@@ -193,3 +192,66 @@ def test_timed_consent_auto_approves_until_revoked(tmp_path: Path) -> None:
     records = [json.loads(line) for line in manager.audit_path.read_text(encoding="utf-8").splitlines()]
     assert [record["outcome"] for record in records] == ["decision", "approval_window", "timeout", "approval_window"] + ["timeout"] * 3
     assert records[0]["window_expires_at"] > records[0]["timestamp"]
+
+
+# TEST-CONTRACT: req=APPROVAL-WINDOW-02 | rejects=Gate-failure approval can create a new timed auto-approval window | gap=PendingApproval does not retain allow_window | revert=remove allow_window guard from handle_reply | mock=FakeWps boundary
+def test_disallowed_window_cannot_be_created_by_timed_consent(tmp_path: Path) -> None:
+    wps = FakeWps()
+    manager = ApprovalManager(wps=wps, timeout_seconds=2, audit_path=tmp_path / "audit.jsonl")
+    result: list[tuple[bool, str]] = []
+    thread = threading.Thread(
+        target=lambda: result.append(
+            manager.request(
+                chat_id="chat-1",
+                user_id="user-1",
+                display_name="Alice",
+                review="Gate unavailable",
+                allow_window=False,
+            )
+        )
+    )
+    thread.start()
+    _wait_for_prompt(wps)
+    assert manager.handle_reply(_message("同意5分钟")) is True
+    thread.join(timeout=2)
+
+    assert result == [(True, "")]
+    manager.timeout_seconds = 0
+    assert manager.request(
+        chat_id="chat-1", user_id="user-1", display_name="Alice", review="下一条操作"
+    ) == (False, "")
+    record = json.loads((tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert record["window_expires_at"] == 0
+
+
+# TEST-CONTRACT: req=APPROVAL-TIMEOUT-01 | rejects=approval arriving at the wait boundary is audited as timeout | gap=wait result and pending decision are finalized separately | revert=move pending cleanup back outside the decision lock | mock=controlled Event boundary
+def test_approval_boundary_reply_is_finalized_as_decision(tmp_path: Path, monkeypatch) -> None:
+    manager = ApprovalManager(wps=FakeWps(), timeout_seconds=2, audit_path=tmp_path / "audit.jsonl")
+
+    class BoundaryResult:
+        def __bool__(self) -> bool:
+            assert manager.handle_reply(_message("同意")) is True
+            return False
+
+    class BoundaryEvent:
+        def __init__(self) -> None:
+            self._set = False
+
+        def wait(self, timeout: float | None = None) -> BoundaryResult:
+            return BoundaryResult()
+
+        def set(self) -> None:
+            self._set = True
+
+        def is_set(self) -> bool:
+            return self._set
+
+    monkeypatch.setattr("ga_wps.approval.threading.Event", BoundaryEvent)
+    result = manager.request(
+        chat_id="chat-1", user_id="user-1", display_name="Alice", review="review"
+    )
+
+    record = json.loads((tmp_path / "audit.jsonl").read_text(encoding="utf-8").strip())
+    assert result == (True, "")
+    assert record["approved"] is True
+    assert record["outcome"] == "decision"

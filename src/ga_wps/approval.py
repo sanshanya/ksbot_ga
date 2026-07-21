@@ -8,7 +8,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .wps import WpsClient, WpsMessage
+from .client import WpsClient
+from .protocol import WpsMessage
 
 logger = logging.getLogger(__name__)
 _CONSENT = re.compile(
@@ -25,6 +26,7 @@ class PendingApproval:
     approved: bool = False
     feedback: str = ""
     window_expires_at: float = 0.0
+    allow_window: bool = True
 
 
 class ApprovalManager:
@@ -46,7 +48,13 @@ class ApprovalManager:
                 stored = 0.0
             expiry = stored if allow_window else 0.0
             pending = PendingApproval(
-                chat_id, user_id, review, threading.Event(), bool(expiry), window_expires_at=expiry
+                chat_id,
+                user_id,
+                review,
+                threading.Event(),
+                bool(expiry),
+                window_expires_at=expiry,
+                allow_window=allow_window,
             )
             if not expiry:
                 self._pending[chat_id] = pending
@@ -62,11 +70,19 @@ class ApprovalManager:
                 "其他回复会取消本次操作并交给模型。"
             )
             self.wps.send_markdown_split(chat_id, prompt, mention=mention)
-            outcome = "decision" if pending.event.wait(self.timeout_seconds) else "timeout"
-            return pending.approved, pending.feedback
+            wait_signaled = bool(pending.event.wait(self.timeout_seconds))
+            with self._lock:
+                decided = wait_signaled or pending.event.is_set()
+                approved = pending.approved
+                feedback = pending.feedback
+                if self._pending.get(chat_id) is pending:
+                    self._pending.pop(chat_id, None)
+                outcome = "decision" if decided else "timeout"
+            return approved, feedback
         finally:
             with self._lock:
-                self._pending.pop(chat_id, None)
+                if self._pending.get(chat_id) is pending:
+                    self._pending.pop(chat_id, None)
             self._audit(pending, outcome)
 
     def handle_reply(self, message: WpsMessage) -> bool:
@@ -79,11 +95,14 @@ class ApprovalManager:
             minutes = int(match.group(1) or 0) if match else 0
             pending.approved = bool(match and (match.group(1) is None or minutes > 0))
             pending.feedback = "" if pending.approved else text
-            if pending.approved and minutes:
+            if pending.approved and minutes and pending.allow_window:
                 pending.window_expires_at = time.time() + minutes * 60
                 self._windows[(pending.chat_id, pending.user_id)] = pending.window_expires_at
             pending.event.set()
         reply = (
+            "操作已批准，但本次未开启自动同意窗口。"
+            if pending.approved and minutes and not pending.allow_window
+            else
             f"操作已批准，并开启 {minutes} 分钟自动同意窗口。"
             if pending.window_expires_at
             else "操作已批准。" if pending.approved
@@ -101,12 +120,11 @@ class ApprovalManager:
 
     def cancel_chat(self, chat_id: str, user_id: str) -> bool | None:
         with self._lock:
-            self._windows.pop((chat_id, user_id), None)
             pending = self._pending.get(chat_id)
             if pending is None:
+                self._windows.pop((chat_id, user_id), None)
                 return None
-            if pending.user_id != user_id:
-                return False
+            self._windows.pop((chat_id, pending.user_id), None)
             pending.approved = False
             pending.feedback = "/stop"
             pending.event.set()

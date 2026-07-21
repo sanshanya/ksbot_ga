@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ga_core.ga_runtime import ApprovalContext, _make_handler_class, load_ga_modules
+from ga_core.ga_handler import ApprovalContext, _make_handler_class, load_ga_modules
 from ga_core.gate import GateDecision
 
 ROOT = Path(__file__).parents[1]

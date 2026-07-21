@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-from ga_core.ga_runtime import ApprovalContext, GaModules, _make_handler_class
+from ga_core.ga_handler import ApprovalContext, GaModules, _make_handler_class
 
 
 @dataclass
@@ -108,6 +108,37 @@ def test_denied_production_write_does_not_execute() -> None:
     assert outcome.data["status"] == "rejected"
     assert "先检查流量" in outcome.next_prompt
     assert approvals.kwargs["allow_window"] is False
+
+
+# TEST-CONTRACT: req=GATE-FAILURE-EVIDENCE-01 | rejects=fail-closed approval asks for blind consent without the original call | gap=approval review only contains the Gate error | revert=remove deterministic fallback evidence from do_code_run | mock=FixedGate+FixedApprovals (Gate and approval boundaries)
+def test_gate_failure_approval_includes_original_call_evidence() -> None:
+    approvals = FixedApprovals(False)
+    parent = make_parent("approval_required", approval_sink=approvals)
+    parent._approval_context.gate = SimpleNamespace(
+        review=lambda code, code_type, cwd: SimpleNamespace(
+            decision="approval_required",
+            message="AI gate unavailable: connection refused",
+            source="fail_closed",
+            probe=SimpleNamespace(
+                current_context="qy-online",
+                current_namespace="kaic-kis",
+                kubeconfig_env="KUBECONFIG=/config/kubeconfig",
+                error="",
+            ),
+        )
+    )
+    command = "kubectl delete pod api-0 -n kaic-kis"
+    handler = _make_handler_class(modules())(parent, [], "C:/agent/workspace")
+    exhaust(handler.do_code_run({"type": "bash", "code": command}, SimpleNamespace(content="")))
+
+    review = approvals.kwargs["review"]
+    assert "AI gate unavailable: connection refused" in review
+    assert command in review
+    assert "code_type: bash" in review
+    assert "cwd:" in review and "agent" in review
+    assert "current_context: qy-online" in review
+    assert "current_namespace: kaic-kis" in review
+    assert "KUBECONFIG=/config/kubeconfig" in review
 
 
 # TEST-CONTRACT: req=HANDLER-01B | rejects=approved WPS write is regenerated or executed twice | gap=no direct-resume assertion | revert=replace original stack resume with a new model turn | mock=FixedGate+FixedApprovals

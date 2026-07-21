@@ -50,6 +50,7 @@ class GateDecision:
     decision: str
     message: str
     source: str
+    probe: ClusterProbe | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,7 @@ class KubectlAiGate:
     def review(self, code: str, code_type: str, cwd: str) -> GateDecision:
         if not is_kubectl_code(code) and not has_script_invocation(code):
             return GateDecision("allow", "kubectl referral marker not present", "filter")
+        probe: ClusterProbe | None = None
         try:
             inventory = self._load_inventory()
             probe = self._probe(cwd)
@@ -110,6 +112,7 @@ class KubectlAiGate:
                 "approval_required",
                 f"cluster environment could not be loaded: {type(exc).__name__}: {exc}",
                 "fail_closed",
+                probe,
             )
         script_inputs = [
             item for item in referenced_inputs.values() if item.get("kind") == "script"
@@ -132,13 +135,14 @@ class KubectlAiGate:
             message = str(result.get("message", "")).strip()
             if decision not in _DECISIONS or not message:
                 raise ValueError("invalid gate JSON")
-            return GateDecision(decision, message, "ai_gate")
+            return GateDecision(decision, message, "ai_gate", probe)
         except Exception as exc:
             logger.warning("kubectl AI gate failed", exc_info=True)
             return GateDecision(
                 "approval_required",
                 f"AI gate unavailable: {type(exc).__name__}: {str(exc)[:200]}",
                 "fail_closed",
+                probe,
             )
 
     def _load_inventory(self) -> dict[str, Any]:
