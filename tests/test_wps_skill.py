@@ -61,7 +61,7 @@ def test_history_and_download_scan_all_visible_messages(tmp_path) -> None:
     )
     context = {"chat_id": "chat-1", "workspace": str(tmp_path), "current_event_id": "current"}
     result = wps_chat.history(api, context, limit=1, participant="甘小雨")
-    assert "Source:" in result and "Refresh with GA code_run:" in result
+    assert "Source:" in result and "Refresh:" in result
     assert "message_id=new-answer" in result and "message_id=old-answer" not in result and "message_id=current" not in result and "�" not in result
 
     downloaded = wps_chat.download(api, context)
@@ -87,6 +87,119 @@ def test_empty_history_is_reported_as_success(tmp_path) -> None:
     api = FakeWps({(None, None): ([], ""), (1, None): ([], "")})
     result = wps_chat.history(api, {"chat_id": "chat-1", "workspace": str(tmp_path)})
     assert "History fetch succeeded" in result and "no accessible messages" in result
+
+
+def test_document_skill_uses_keychain_capability_without_chat_context(monkeypatch, capsys) -> None:
+    class FakeDocs:
+        available = True
+        authenticated = True
+
+        def read_file(self, **_kwargs):
+            return {"name": "baseline.otl", "content": "# baseline"}
+
+    monkeypatch.setattr(wps_chat, "KdocsCli", FakeDocs)
+    assert wps_chat.main(["document", "--url", "https://365.kdocs.cn/l/example"]) == 0
+    result = capsys.readouterr().out
+    assert "baseline.otl" in result and "# baseline" in result
+
+
+def test_document_create_skill_writes_workspace_markdown_once(monkeypatch, tmp_path, capsys) -> None:
+    calls = []
+
+    class FakeDocs:
+        available = True
+        authenticated = True
+
+        def create_smart_doc(self, **kwargs):
+            calls.append(("create", kwargs))
+            return {"file_id": "doc-1"}
+
+        def share_file(self, **kwargs):
+            calls.append(("share", kwargs))
+            return {"url": "https://365.kdocs.cn/l/doc-1"}
+
+    draft = tmp_path / "draft.md"
+    draft.write_text("# baseline\n\ncontent", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(wps_chat, "KdocsCli", FakeDocs)
+    assert wps_chat.main(
+        ["document-create", "--title", "Baseline", "--content-file", str(draft)]
+    ) == 0
+    output = capsys.readouterr().out
+    assert "WPS smart document created and shared" in output
+    assert "doc-1" in output and "https://365.kdocs.cn/l/doc-1" in output
+    assert "anyone with the link can view" in output
+    assert calls == [
+        ("create", {"title": "Baseline", "content": "# baseline\n\ncontent", "parent_id": ""}),
+        ("share", {"file_id": "doc-1", "scope": "anyone"}),
+    ]
+
+
+def test_document_create_does_not_repeat_when_sharing_fails(monkeypatch, capsys) -> None:
+    calls = []
+
+    class FakeDocs:
+        available = True
+        authenticated = True
+
+        def create_smart_doc(self, **kwargs):
+            calls.append(("create", kwargs))
+            return {"file_id": "doc-1"}
+
+        def share_file(self, **kwargs):
+            calls.append(("share", kwargs))
+            raise RuntimeError("share unavailable")
+
+    monkeypatch.setattr(wps_chat, "KdocsCli", FakeDocs)
+    assert wps_chat.main(["document-create", "--title", "Baseline", "--content", "# x"]) == 1
+    error = capsys.readouterr().err
+    assert "file_id=doc-1" in error and "document-share" in error
+    assert [name for name, _ in calls] == ["create", "share"]
+
+
+def test_document_share_and_append_are_explicit_side_effects(monkeypatch, tmp_path, capsys) -> None:
+    calls = []
+
+    class FakeDocs:
+        available = True
+        authenticated = True
+
+        def append_smart_doc(self, **kwargs):
+            calls.append(("append", kwargs))
+
+        def share_file(self, **kwargs):
+            calls.append(("share", kwargs))
+            return {"url": "https://365.kdocs.cn/l/doc-1"}
+
+    draft = tmp_path / "append.md"
+    draft.write_text("## Follow-up", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(wps_chat, "KdocsCli", FakeDocs)
+    assert wps_chat.main(
+        ["document-append", "--file-id", "doc-1", "--content-file", str(draft)]
+    ) == 0
+    assert wps_chat.main(["document-share", "--file-id", "doc-1"]) == 0
+    capsys.readouterr()
+    assert calls == [
+        ("append", {"file_id": "doc-1", "content": "## Follow-up"}),
+        ("share", {"file_id": "doc-1", "scope": "anyone"}),
+    ]
+
+
+def test_document_search_renders_cli_file_envelope(monkeypatch, capsys) -> None:
+    class FakeDocs:
+        available = True
+        authenticated = True
+
+        def search_files(self, **kwargs):
+            assert kwargs == {"keyword": "baseline", "page_size": 20, "search_type": "content"}
+            return {"items": [{"file": {"id": "doc-1", "name": "baseline.otl", "link_url": "https://www.kdocs.cn/l/doc-1"}}]}
+
+    monkeypatch.setattr(wps_chat, "KdocsCli", FakeDocs)
+    assert wps_chat.main(["document-search", "--keyword", "baseline", "--type", "content"]) == 0
+    output = capsys.readouterr().out
+    assert "Type: content" in output
+    assert "[open](https://www.kdocs.cn/l/doc-1)" in output
 
 
 def test_rich_text_mentions_keep_word_boundaries() -> None:

@@ -12,6 +12,7 @@ src/ga_core/ga_runtime.py  每 chat Session、loop、workspace、artifact
 src/ga_core/gate.py        kubectl 转介、环境取证、AI 裁决
 src/ga_wps/protocol.py     canonical message/attachment/mention
 src/ga_wps/client.py       WPS auth、API、消息、附件
+src/ga_wps/kdocs.py        WPS Docs read/create、keychain auth
 src/ga_wps/callback.py     callback HTTP 与身份校验
 src/ga_wps/history.py      历史、旧附件
 src/ga_wps/app.py          调度、实时附件、Bridge、交付、关闭
@@ -42,7 +43,7 @@ src/ga_wps/approval.py     单次审批、限时窗口、停止、审计
 
 ## Skill、记忆、验收
 
-Skill 通过 GA 原生工具调用，不新增 Tool Schema 或 Registry。`wps-chat` 查询历史和旧附件；`ga_wps.history` 是唯一历史实现。GA 全局成长保留，适配层只修正 memory 路径；跨 chat 长期记忆结算串行化，不增加 chat-local durable memory。
+Skill 通过 GA 原生工具调用，不新增 Tool Schema 或 Registry。`wps-chat` 查询历史、旧附件和 WPS Docs；Docs 通过独立的 `kdocs-cli` 钥匙串会话读写、追加、搜索和分享，不依赖 WPS Chat API scope。创建后默认 `scope=anyone`，当前验证语义为任何持链接者可查看，不伪造链接；不确定的创建不自动重试。`ga_wps.history` 是唯一历史实现。GA 全局成长保留，适配层只修正 memory 路径；跨 chat 长期记忆结算串行化，不增加 chat-local durable memory。
 
 运行与检查：`uv sync --extra dev` → `scripts/fetch_ga.py` → `scripts/configure_ga_local.py` → `npm install` → `ga-wps` → contract probe → pytest → ruff → token budget。升级 GA 必须在同一 revision 完成 diff 审查、自动验证和真实闭环。
 

@@ -229,7 +229,7 @@ def history(
         f"Scope: latest {limit} matching messages from all WPS-visible history, oldest to newest.",
         f"Coverage: scanned {visible} visible messages; "
         + ("accessible history exhausted." if exhausted else "latest window supplied the requested count."),
-        f'Refresh with GA code_run: python "{source}" history --limit {limit}',
+        f"Refresh: python \"{source}\" history --limit {limit}",
     ]
     if participant:
         lines.append(f"Participant filter: {participant}")
@@ -288,5 +288,5 @@ def download(
     return (
         "WPS attachment capability result\n"
         f"Source message: {wanted}\nDownloaded to: {path}\n"
-        "Read it with GA file_read or code_run."
+        "File surfaces: GA file_read/code_run."
     )

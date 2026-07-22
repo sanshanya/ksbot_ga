@@ -29,10 +29,12 @@ def test_canonical_payload_and_mention_contract() -> None:
             attachments=[
                 {"type": "image", "storage_key": "key-1", "name": "photo.png", "size": "12"}
             ],
+            shared_docs=[{"link_id": "shared-1"}],
         )
     )
     assert message.text == "[attachment-only message]"
     assert message.attachments[0].size == 12
+    assert message.shared_doc_ids == ("shared-1",)
     with pytest.raises(ValueError, match="canonical WPS payload"):
         WpsMessage.from_payload({"chat_id": "c1", "raw_event": {"message": {"id": "m1"}}})
 

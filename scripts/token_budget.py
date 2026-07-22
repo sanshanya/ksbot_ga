@@ -16,6 +16,7 @@ MODULES = {
     "wps.client": "src/ga_wps/client.py",
     "wps.callback": "src/ga_wps/callback.py",
     "wps.history": "src/ga_wps/history.py",
+    "wps.kdocs": "src/ga_wps/kdocs.py",
     "wps.service": "src/ga_wps/app.py src/ga_wps/__init__.py",
     "wps.config": "src/ga_wps/config.py",
     "wps.approval": "src/ga_wps/approval.py",
@@ -45,13 +46,16 @@ SURFACES = {
     "wps-ingress": "wps.bridge wps.protocol wps.callback wps.config test.wps.bridge test.wps.protocol test.wps.callback test.wps.config",
     "wps-client": "wps.client wps.protocol test.wps.client",
     "wps-history": "wps.history wps.client wps.protocol wps.skill test.wps.history",
+    "wps-docs": "wps.kdocs wps.skill test.wps.client test.wps.history",
     "wps-service": "wps.service wps.config wps.protocol wps.history wps.approval test.wps.service test.wps.approval",
     "k8s-write": "core.handler core.gate wps.service wps.approval test.core.handler test.core.gate test.wps.service test.wps.approval",
 }
 LIMITS = {
-    "total": 60464,
-    "groups": {"production": 34296, "tests": 18796, "guidance": 1904, "tooling": 5468},
-    "surfaces": dict(zip(SURFACES, map(int, "11796 5865 8562 5336 10776 17132 23436".split()))),
+    "total": 69308,
+    "groups": {"production": 39298, "tests": 22480, "guidance": 2012, "tooling": 5518},
+    "surfaces": dict(
+        zip(SURFACES, map(int, "11796 5865 9079 6791 14342 11078 17330 23634".split()))
+    ),
 }
 
 

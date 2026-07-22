@@ -172,8 +172,8 @@ def make_handler_class(modules: GaModules) -> type:
                 return outcome(
                     {"status": "skipped", "reason": verdict.message},
                     next_prompt=anchor
-                    + "\n[System] The kubectl gate did not execute the command. "
-                    + f"Resolve this missing context: {verdict.message}",
+                    + "\n[System] Kubernetes operation status: not executed. "
+                    + f"Missing context: {verdict.message}",
                 )
             review = verdict.message
             if verdict.source != "ai_gate":
@@ -200,12 +200,12 @@ def make_handler_class(modules: GaModules) -> type:
             )
             if approved:
                 return (yield from self._run_code(args, response))
-            prompt = anchor + "\n[System] The requested Kubernetes operation was not executed."
+            prompt = anchor + "\n[System] Kubernetes operation status: not executed."
             prompt += (
-                " The task requester replied with this feedback: "
-                f"{feedback!r}. Continue from it and do not retry unchanged."
+                " Approval feedback from the task requester: "
+                f"{feedback!r}. The original code has no approval result."
                 if feedback
-                else " It was not approved before the timeout. Do not retry unchanged."
+                else " Approval state: timed out. The original code has no approval result."
             )
             return outcome(
                 {"status": "rejected", "feedback": feedback}, next_prompt=prompt

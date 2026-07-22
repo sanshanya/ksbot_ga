@@ -1,10 +1,8 @@
 ---
 name: sglang-operations
-description: Produce SGLang operational reports and investigate deployment/runtime issues.
+description: SGLang operational evidence and deployment/runtime investigation.
 ---
 
-# SGLang operations SOP
+# SGLang operations capability
 
-Collect evidence from GitHub, deployment configuration, Kubernetes state, and runtime logs.
-Use batched queries. Write long reports to `artifacts/` and attach them. State exact versions,
-timestamps, assumptions, and gaps. Do not turn an unverified hypothesis into a conclusion.
+Evidence sources: GitHub, deployment configuration, Kubernetes state, and runtime logs. Reports contain observations, exact versions/timestamps, assumptions, hypotheses, and gaps. Long reports are deliverables below `artifacts/` with the WPS attachment marker.

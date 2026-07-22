@@ -17,6 +17,8 @@ export function normalize(data, currentBotIds, eventId) {
     const subtype = file.type || (file.cloud ? 'cloud' : file.local ? 'local' : '');
     if (subtype === 'cloud' && file.cloud?.link_url) {
       cloudDocs.push({link_url: file.cloud.link_url});
+      const fileId = file.cloud.id || file.cloud.link_id || '';
+      if (fileId) sharedDocs.push({file_id: fileId, link_id: file.cloud.link_id || ''});
       text = '[cloud-doc]';
     } else if (subtype === 'local' && file.local?.storage_key) {
       attachments.push(attachment('file', file.local));
@@ -36,6 +38,7 @@ export function normalize(data, currentBotIds, eventId) {
       ? rich.text
       : normalizeInlineMentions(extractText(content), mentions, currentBotIds);
     attachments = rich.attachments;
+    cloudDocs = rich.cloudDocs;
     sharedDocs = rich.sharedDocs;
   }
   return {
@@ -65,7 +68,7 @@ function attachment(type, value) {
 }
 
 function extractRichText(content, currentBotIds) {
-  const result = {text: '', attachments: [], sharedDocs: []};
+  const result = {text: '', attachments: [], cloudDocs: [], sharedDocs: []};
   const rich = content?.rich_text;
   const rows = rich?.elements || rich?.content || [];
   if (!Array.isArray(rows)) return result;
@@ -87,6 +90,7 @@ function extractRichText(content, currentBotIds) {
           link_id: file.link_id || '',
           link_url: file.link_url || '',
         });
+        if (file.link_url) result.cloudDocs.push({link_url: file.link_url});
         parts.push(`[doc:${item?.doc_content?.text || ''}]`);
       }
       if (item.type === 'image' && item?.image_content?.storage_key) {

@@ -1,10 +1,10 @@
 ---
 name: github-research
-description: Investigate repositories, pull requests, issues, releases, and code history.
+description: Repository, pull request, issue, release, and code-history research with evidence.
 ---
 
-# GitHub research SOP
+# GitHub research capability
 
-Prefer the `gh` CLI and local git. Establish the repository, branch, commit, and date before
-making conclusions. For a PR review, inspect metadata, changed files, the actual diff, tests,
-and unresolved review comments. Separate verified facts from inference.
+Scope: repositories, branches, commits, pull requests, issues, releases, diffs, tests, and review comments.
+
+Sources: local Git and the `gh` CLI. Results identify repository, branch, commit, date, available evidence, and gaps. Conclusions distinguish verified facts from inference.

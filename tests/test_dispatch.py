@@ -123,6 +123,15 @@ def test_attachment_paths_are_stable_and_failures_are_observed(tmp_path) -> None
     assert second_paths[0].name == "02_report.csv"
     assert "missing.csv" in observations[0] and "WPS unavailable" in observations[0]
 
+    doc_paths, doc_observations = service._download_attachments(
+        session,
+        replace(message("event-3"), cloud_doc_links=("https://365.kdocs.cn/l/doc",), shared_doc_ids=("file-3",)),
+    )
+    assert not doc_observations
+    assert [path.name for path in doc_paths] == ["cloud_docs.txt", "shared_doc_ids.txt"]
+    assert doc_paths[0].read_text(encoding="utf-8").strip() == "https://365.kdocs.cn/l/doc"
+    assert doc_paths[1].read_text(encoding="utf-8").strip() == "file-3"
+
 
 def test_artifact_failure_reports_without_rerunning_agent(tmp_path) -> None:
     artifact = tmp_path / "report.txt"

@@ -120,7 +120,7 @@ class GaChatSession:
         parts = [text.strip()]
         if paths:
             parts += ["\nAttached files were downloaded to:", *(f"- {path}" for path in paths)]
-            parts.append("Read them with file_read or code_run when useful.")
+            parts.append("Local file surfaces: file_read and code_run.")
         if observations:
             parts += ["\nRuntime observations:", *(f"- {item}" for item in observations)]
         return "\n".join(filter(None, parts))

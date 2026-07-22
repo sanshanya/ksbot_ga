@@ -365,7 +365,8 @@ class GaWpsService:
             retry = f'python "{self._wps_skill_script}" history --limit {self.settings.recent_history_messages}'
             return (
                 "WPS chat history capability failed; no history was injected. "
-                f"Error: {type(exc).__name__}: {exc}\nRetry with GA code_run: {retry}"
+                f"Error: {type(exc).__name__}: {exc}\n"
+                f"code_run {retry}"
             )
 
     def _download_attachments(

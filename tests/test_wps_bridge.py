@@ -101,3 +101,38 @@ def test_bridge_canonical_mentions(payload, expected, mentioned, ids) -> None:
         "Alice",
     )
     assert "raw_event" not in value
+
+
+def test_cloud_document_preserves_file_id_for_content_extraction() -> None:
+    value = event({"file": {"type": "cloud", "cloud": {"id": "file-1", "link_url": "url"}}})
+    value["message"]["type"] = "file"
+    result = run(value)
+    assert result["cloud_docs"] == [{"link_url": "url"}]
+    assert result["shared_docs"] == [{"file_id": "file-1", "link_id": ""}]
+
+
+def test_rich_document_preserves_url_for_kdocs_cli() -> None:
+    value = event(
+        rich(
+            {
+                "type": "doc",
+                "doc_content": {
+                    "text": "tracking",
+                    "file": {
+                        "id": "file-1",
+                        "link_id": "link-1",
+                        "link_url": "https://365.kdocs.cn/l/doc",
+                    },
+                },
+            }
+        )
+    )
+    result = run(value)
+    assert result["cloud_docs"] == [{"link_url": "https://365.kdocs.cn/l/doc"}]
+    assert result["shared_docs"] == [
+        {
+            "file_id": "file-1",
+            "link_id": "link-1",
+            "link_url": "https://365.kdocs.cn/l/doc",
+        }
+    ]

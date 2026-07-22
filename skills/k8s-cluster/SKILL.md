@@ -1,30 +1,31 @@
 ---
 name: k8s-cluster
-description: Activate for any Qingyang Kubernetes request, including inspection, logs, capacity, health, or kubectl.
+description: Qingyang Kubernetes inspection, logs, capacity, health, and kubectl write capabilities.
 version: "4"
 ---
 
-# Kubernetes operating SOP
+# Qingyang Kubernetes capabilities
 
-Read `config/clusters.yaml` first; it is the sole source for context, namespace identity, and write policy. Do not infer environment from node/model labels or the word `online`.
-
-Use kubeconfig `C:/Users/sansm/.kube/qy-online.yaml` and context `qy-online` (or a declared alias). Environment ownership is namespace/Pod-level; nodes are shared and must not be classified as test or production.
+`config/clusters.yaml` is authoritative for cluster identity, namespaces, and write policy. Default connection: kubeconfig `C:/Users/sansm/.kube/qy-online.yaml`, context `qy-online` (or a declared alias). Environment ownership is namespace/Pod scoped; nodes are shared.
 
 | Namespace/scope | Meaning | Write policy |
 |---|---|---|
 | `kaic-kis` | production inference | approval |
 | `test-inference` | experiments | autonomous |
-| `kube-system`, `default` | protected, not production | approval |
+| `kube-system`, `default` | protected system scope | approval |
 | all namespaces / cluster scope | shared impact | approval |
 
-Before each command, make context and namespace explicit when practical. Read-only queries are allowed. After every write, verify intended state with an independent read (`get`, `rollout status`, events, or equivalent); exit code alone is not success. A rejected/timed-out write must not be rephrased to bypass Gate. For `model_fixable`, expose the missing context, namespace, kubeconfig, manifest, or script path before retrying. Never hide or construct the `kubectl` token to evade referral.
+## Execution contract
 
-For manifests: read the complete file; inspect every namespace (including `kind: List` items); use `kubectl diff` when supported; keep context/kubeconfig explicit for writes; verify rollout/status/events afterward.
+- Read-only queries have no write side effect.
+- Protected writes carry Gate status and approval context; rejection or timeout means `not executed`.
+- A successful write has an independent state observation; exit code alone is not a verified postcondition.
+- `model_fixable` identifies missing namespace, kubeconfig, manifest, or script context.
+- Write command context is explicit where supported; Kubernetes credentials are not command text.
+- Manifest state includes the complete file and every namespace, including `kind: List` items. Diff, rollout, events, and resulting object state are available observations.
 
-Operational queries:
-- “test machines/instances” means Pods in `test-inference`; cluster nodes means `kubectl get nodes`.
-- Use live output; never reconstruct truncated node lists.
-- Prefer `kubectl top nodes --no-headers`; describe individual nodes only when detail is needed.
-- Select GPU models with real labels such as `accelerator` or `nvidia.com/gpu.product`.
+## Query semantics
 
-For free GPU capacity, use two aggregate reads: nodes JSON for capacity/allocatable and all-Pods JSON for GPU requests. Join locally by `spec.nodeName`, count unused nodes as `used=0`, and report total capacity, requested, free, and anomalies. Do not query per node.
+- “test machines/instances” = Pods in `test-inference`; “cluster nodes” = `kubectl get nodes`.
+- GPU identity comes from live labels such as `accelerator` or `nvidia.com/gpu.product`.
+- Free GPU capacity joins aggregate node capacity/allocatable with aggregate Pod GPU requests by `spec.nodeName`; the result contains total, requested, free, and anomalies.
